@@ -62,7 +62,7 @@ const HomeView = ({ setCurrentPage }) => {
         <div className="relative z-10">
           <h2 className="text-xl font-bold mb-2">Pôle Multi-Propriétés</h2>
           <p className="text-emerald-50 text-xs mb-5 opacity-90">Analyse de vos parcelles propulsée par l'IA experte.</p>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             <button onClick={() => setCurrentPage('scan')} className="bg-white/20 backdrop-blur-md border border-white/30 p-4 rounded-2xl flex flex-col items-center gap-2 hover:bg-white/30 transition-all">
               <Camera size={24} />
               <span className="text-xs font-bold">Scan IA</span>
@@ -70,6 +70,10 @@ const HomeView = ({ setCurrentPage }) => {
             <button onClick={() => setCurrentPage('carte')} className="bg-white/20 backdrop-blur-md border border-white/30 p-4 rounded-2xl flex flex-col items-center gap-2 hover:bg-white/30 transition-all">
               <MapIcon size={24} />
               <span className="text-xs font-bold">Carte 3D</span>
+            </button>
+            <button onClick={() => setCurrentPage('meteo')} className="bg-white/20 backdrop-blur-md border border-white/30 p-4 rounded-2xl flex flex-col items-center gap-2 hover:bg-white/30 transition-all">
+              <CloudRain size={24} />
+              <span className="text-xs font-bold">Météo</span>
             </button>
           </div>
         </div>

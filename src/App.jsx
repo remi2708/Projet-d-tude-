@@ -1,6 +1,20 @@
 ﻿import React, { useState, useEffect } from 'react';
-import { signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-import { collection, onSnapshot } from 'firebase/firestore';
+import {
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
+  onAuthStateChanged,
+  updatePassword,
+} from 'firebase/auth';
+import {
+  collection,
+  doc,
+  getDoc,
+  setDoc,
+  updateDoc,
+  serverTimestamp,
+  onSnapshot,
+} from 'firebase/firestore';
 
 // Imports des services et outils
 import { auth, db, appId, hasFirebase } from './services/firebase';
@@ -19,6 +33,21 @@ import AdminView from './views/AdminView';
 import AccountView from './views/AccountView';
 import LoginView from './views/LoginView';
 import RegisterView from './views/RegisterView';
+import WeatherView from './views/WeatherView';
+
+const ADMIN_EMAIL = 'root@gmail.com';
+
+const buildProfile = (uid, data) => ({
+  uid,
+  email: data.email || '',
+  displayName: data.displayName || `${data.firstName || ''} ${data.lastName || ''}`.trim(),
+  firstName: data.firstName || data.displayName?.split(' ')[0] || '',
+  lastName: data.lastName || data.displayName?.split(' ').slice(1).join(' ') || '',
+  role: data.role || 'user',
+  createdAt: data.createdAt || null,
+  lastLoginAt: data.lastLoginAt || null,
+  disabled: data.disabled || false,
+});
 
 export default function App() {
   const [currentPage, setCurrentPage] = useState('connexion');
@@ -30,81 +59,104 @@ export default function App() {
   const [zones, setZones] = useState([]);
   const [showConfirmationModal, setShowConfirmationModal] = useState(false);
 
-  const USERS_STORAGE_KEY = 'vitinova_users';
-  const ADMIN_EMAIL = 'root@gmail.com';
-  const DEFAULT_ADMIN_PASSWORD = 'admin123';
+  const profileRef = (uid) => doc(db, 'users', uid);
 
-  const getStoredUsers = () => {
-    try {
-      return JSON.parse(localStorage.getItem(USERS_STORAGE_KEY) || '{}');
-    } catch (err) {
-      return {};
-    }
+  const loadUserProfile = async (uid) => {
+    const profileSnapshot = await getDoc(profileRef(uid));
+    if (!profileSnapshot.exists()) return null;
+    return buildProfile(uid, profileSnapshot.data());
   };
 
-  const setStoredUsers = (accounts) => {
-    localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(accounts));
+  const createUserProfile = async ({ uid, email, firstName, lastName, role }) => {
+    const profileData = {
+      uid,
+      email,
+      displayName: `${firstName} ${lastName}`.trim(),
+      firstName,
+      lastName,
+      role,
+      createdAt: serverTimestamp(),
+      lastLoginAt: serverTimestamp(),
+      disabled: false,
+    };
+    await setDoc(profileRef(uid), profileData);
+    return buildProfile(uid, profileData);
   };
 
-  const ensureAdminAccount = () => {
-    const accounts = getStoredUsers();
-    if (!accounts[ADMIN_EMAIL]) {
-      accounts[ADMIN_EMAIL] = {
-        email: ADMIN_EMAIL,
-        password: DEFAULT_ADMIN_PASSWORD,
-        firstName: 'Super',
-        lastName: 'Admin',
-        role: 'admin',
-        active: true,
-      };
-      setStoredUsers(accounts);
+  const syncAuthState = async (firebaseUser) => {
+    setUser(firebaseUser);
+    if (!firebaseUser) {
+      setAuthenticated(false);
+      setCurrentUser(null);
+      setCurrentPage('connexion');
       return;
     }
 
-    if (accounts[ADMIN_EMAIL].role !== 'admin') {
-      accounts[ADMIN_EMAIL].role = 'admin';
-      setStoredUsers(accounts);
+    const profile = await loadUserProfile(firebaseUser.uid);
+    if (!profile) {
+      console.warn('Profil utilisateur non trouvé pour uid', firebaseUser.uid);
+      setAuthenticated(false);
+      setCurrentUser(null);
+      setCurrentPage('connexion');
+      return;
     }
+
+    if (profile.disabled) {
+      await signOut(auth);
+      setAuthenticated(false);
+      setCurrentUser(null);
+      setCurrentPage('connexion');
+      return;
+    }
+
+    if (profile.email === ADMIN_EMAIL && profile.role !== 'admin') {
+      await updateDoc(profileRef(firebaseUser.uid), { role: 'admin' });
+      profile.role = 'admin';
+    }
+
+    setCurrentUser(profile);
+    setAuthenticated(true);
+    setCurrentPage((previous) => (previous === 'connexion' || previous === 'creer' ? 'accueil' : previous));
   };
 
   useEffect(() => {
-    ensureAdminAccount();
+    if (!hasFirebase || !auth) return;
+    const unsubscribe = onAuthStateChanged(auth, syncAuthState);
+    return unsubscribe;
   }, []);
 
-  const handleCreateAccount = ({ email, password, firstName, lastName }) => {
-    const normalizedEmail = email.trim().toLowerCase();
-    const accounts = getStoredUsers();
-    if (accounts[normalizedEmail]) {
-      return { error: 'Un compte existe déjà avec cette adresse e-mail.' };
+  const handleCreateAccount = async ({ email, password, firstName, lastName }) => {
+    if (!hasFirebase || !auth) {
+      return { error: 'Firebase n’est pas configuré.' };
     }
 
-    const isAdmin = normalizedEmail === ADMIN_EMAIL;
-    const newUser = {
-      email: normalizedEmail,
-      password,
-      firstName: firstName.trim(),
-      lastName: lastName.trim(),
-      role: isAdmin ? 'admin' : 'user',
-      active: true
-    };
+    const normalizedEmail = email.trim().toLowerCase();
+    const role = normalizedEmail === ADMIN_EMAIL ? 'admin' : 'user';
 
-    accounts[normalizedEmail] = newUser;
-    setStoredUsers(accounts);
-    setCurrentUser(newUser);
-    setShowConfirmationModal(true);
-    return { error: '' };
+    try {
+      const credential = await createUserWithEmailAndPassword(auth, normalizedEmail, password);
+      const profile = await createUserProfile({
+        uid: credential.user.uid,
+        email: normalizedEmail,
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        role,
+      });
+      setCurrentUser(profile);
+      setShowConfirmationModal(true);
+      setCurrentPage('accueil');
+      return { error: '' };
+    } catch (err) {
+      const message = err.code === 'auth/email-already-in-use'
+        ? 'Un compte existe déjà avec cette adresse e-mail.'
+        : 'Impossible de créer le compte. Vérifiez vos informations.';
+      return { error: message };
+    }
   };
 
-  const handleUpdateAccount = ({ firstName, lastName, password, confirmPassword }) => {
-    const normalizedEmail = currentUser?.email;
-    if (!normalizedEmail) {
+  const handleUpdateAccount = async ({ firstName, lastName, password, confirmPassword }) => {
+    if (!currentUser?.uid) {
       return { error: 'Impossible de mettre à jour le compte.' };
-    }
-
-    const accounts = getStoredUsers();
-    const storedAccount = accounts[normalizedEmail];
-    if (!storedAccount) {
-      return { error: 'Compte introuvable.' };
     }
 
     if (!firstName.trim() || !lastName.trim()) {
@@ -115,41 +167,74 @@ export default function App() {
       if (password !== confirmPassword) {
         return { error: 'Les mots de passe ne correspondent pas.' };
       }
-      storedAccount.password = password;
+      if (auth.currentUser) {
+        try {
+          await updatePassword(auth.currentUser, password);
+        } catch (updateError) {
+          return { error: 'Impossible de mettre à jour le mot de passe. Ré-authentifiez-vous.' };
+        }
+      }
     }
 
-    storedAccount.firstName = firstName.trim();
-    storedAccount.lastName = lastName.trim();
-    accounts[normalizedEmail] = storedAccount;
-    setStoredUsers(accounts);
-    setCurrentUser(storedAccount);
-    return { error: '' };
+    const profileUpdates = {
+      firstName: firstName.trim(),
+      lastName: lastName.trim(),
+      displayName: `${firstName.trim()} ${lastName.trim()}`.trim(),
+    };
+
+    try {
+      await updateDoc(profileRef(currentUser.uid), profileUpdates);
+      const updatedUser = { ...currentUser, ...profileUpdates };
+      setCurrentUser(updatedUser);
+      return { error: '' };
+    } catch (err) {
+      return { error: 'Impossible de mettre à jour le profil utilisateur.' };
+    }
   };
 
-  const handleLogin = ({ email, password }) => {
+  const handleLogin = async ({ email, password }) => {
+    if (!hasFirebase || !auth) {
+      return { error: 'Firebase n’est pas configuré.' };
+    }
+
     const normalizedEmail = email.trim().toLowerCase();
-    const accounts = getStoredUsers();
-    const account = accounts[normalizedEmail];
-    if (!account) {
-      return { error: 'Aucun compte trouvé pour cette adresse e-mail.' };
-    }
-    if (account.password !== password) {
-      return { error: 'Mot de passe incorrect.' };
-    }
-    if (account.active === false) {
-      return { error: 'Ce compte est désactivé. Contactez un administrateur.' };
-    }
 
-    if (account.email === ADMIN_EMAIL && account.role !== 'admin') {
-      account.role = 'admin';
-      accounts[ADMIN_EMAIL] = account;
-      setStoredUsers(accounts);
+    try {
+      const credential = await signInWithEmailAndPassword(auth, normalizedEmail, password);
+      const profile = await loadUserProfile(credential.user.uid);
+      if (!profile) {
+        return { error: 'Profil utilisateur introuvable.' };
+      }
+      if (profile.disabled) {
+        await signOut(auth);
+        return { error: 'Ce compte est désactivé. Contactez un administrateur.' };
+      }
+      if (profile.email === ADMIN_EMAIL && profile.role !== 'admin') {
+        await updateDoc(profileRef(credential.user.uid), { role: 'admin' });
+        profile.role = 'admin';
+      }
+      await updateDoc(profileRef(credential.user.uid), { lastLoginAt: serverTimestamp() });
+      setCurrentUser(profile);
+      setAuthenticated(true);
+      setCurrentPage('accueil');
+      return { error: '' };
+    } catch (err) {
+      const message = err.code === 'auth/user-not-found'
+        ? 'Aucun compte trouvé pour cette adresse e-mail.'
+        : err.code === 'auth/wrong-password'
+          ? 'Mot de passe incorrect.'
+          : 'Impossible de se connecter. Vérifiez vos informations.';
+      return { error: message };
     }
+  };
 
-    setCurrentUser(account);
-    setAuthenticated(true);
-    setCurrentPage('accueil');
-    return { error: '' };
+  const handleLogout = async () => {
+    if (auth) {
+      await signOut(auth);
+    }
+    setAuthenticated(false);
+    setCurrentUser(null);
+    setCurrentPage('connexion');
   };
 
   // Simulation de données (bouton rafraîchir)
@@ -162,14 +247,6 @@ export default function App() {
       timestamp: Date.now()
     });
   };
-
-  // Connexion Firebase anonyme automatique
-  useEffect(() => {
-    if (!hasFirebase || !auth) return;
-    signInAnonymously(auth).catch(err => console.error("Erreur auth Firebase", err));
-    const unsubscribe = onAuthStateChanged(auth, setUser);
-    return () => unsubscribe();
-  }, []);
 
   // Écoute de la base de données (Weenat & Tracés de carte)
   useEffect(() => {
@@ -232,6 +309,7 @@ export default function App() {
       case 'scan': return <ScanIAView />;
       case 'carte': return <MapView sensorData={sensorData} zones={zones} setZones={setZones} />;
       case 'communaute': return <CommunityView user={user} />;
+      case 'meteo': return <WeatherView />;
       case 'compte': return <AccountView currentUser={currentUser} onUpdateAccount={handleUpdateAccount} />;
       case 'admin':
         return currentUser?.role === 'admin'

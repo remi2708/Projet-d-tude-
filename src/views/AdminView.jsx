@@ -14,8 +14,8 @@ import {
   XCircle,
   Cpu,
 } from 'lucide-react';
-
-const USERS_STORAGE_KEY = 'vitinova_users';
+import { collection, doc, onSnapshot, query, orderBy, updateDoc, deleteDoc } from 'firebase/firestore';
+import { db } from '../services/firebase';
 
 const sampleSyncEvents = [
   { id: 1, label: 'Synchronisation cloud', detail: '22 dernières stations', status: 'Réussie', time: 'Il y a 4 min' },
@@ -63,44 +63,52 @@ const AdminView = ({ zones, setCurrentPage, currentUser }) => {
   const [editModelId, setEditModelId] = useState(null);
 
   useEffect(() => {
-    const raw = localStorage.getItem(USERS_STORAGE_KEY) || '{}';
-    const stored = JSON.parse(raw);
-    const normalized = Object.values(stored).map((account) => ({
-      ...account,
-      active: account.active !== false,
-      lastLogin: account.lastLogin || 'Il y a 2 jours',
-      activity: account.activity || 'Consultation de cartes, forum, IA.',
-    }));
-    setUsers(normalized);
+    const usersCollection = collection(db, 'users');
+    const usersQuery = query(usersCollection, orderBy('createdAt', 'desc'));
+    const unsubscribe = onSnapshot(usersQuery, (snapshot) => {
+      const fetchedUsers = snapshot.docs.map((userDoc) => {
+        const data = userDoc.data();
+        return {
+          uid: userDoc.id,
+          email: data.email,
+          displayName: data.displayName,
+          firstName: data.firstName || data.displayName?.split(' ')[0] || '',
+          lastName: data.lastName || data.displayName?.split(' ').slice(1).join(' ') || '',
+          role: data.role || 'user',
+          active: !data.disabled,
+          disabled: data.disabled || false,
+          createdAt: data.createdAt,
+          lastLogin: data.lastLoginAt ? data.lastLoginAt.toDate().toLocaleString('fr-FR') : 'Jamais',
+          activity: data.lastLoginAt ? 'Connexion récente' : 'Aucune activité disponible',
+        };
+      });
+      setUsers(fetchedUsers);
+    }, (err) => console.error('Erreur Firestore utilisateurs :', err));
+
+    return () => unsubscribe();
   }, []);
 
-  const updateStoredUsers = (nextUsers) => {
-    const payload = nextUsers.reduce((acc, user) => {
-      acc[user.email] = user;
-      return acc;
-    }, {});
-    localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(payload));
-    setUsers(nextUsers);
+  const toggleUserActive = async (uid) => {
+    const userDoc = doc(db, 'users', uid);
+    const targetUser = users.find((user) => user.uid === uid);
+    if (!targetUser) return;
+    await updateDoc(userDoc, { disabled: !targetUser.disabled });
+    if (selectedUser?.uid === uid) {
+      setSelectedUser({ ...selectedUser, active: targetUser.disabled, disabled: !targetUser.disabled });
+    }
   };
 
-  const toggleUserActive = (email) => {
-    const nextUsers = users.map((user) =>
-      user.email === email ? { ...user, active: !user.active } : user
-    );
-    updateStoredUsers(nextUsers);
+  const changeRole = async (uid, role) => {
+    const userDoc = doc(db, 'users', uid);
+    await updateDoc(userDoc, { role });
+    if (selectedUser?.uid === uid) {
+      setSelectedUser({ ...selectedUser, role });
+    }
   };
 
-  const changeRole = (email, role) => {
-    const nextUsers = users.map((user) =>
-      user.email === email ? { ...user, role } : user
-    );
-    updateStoredUsers(nextUsers);
-  };
-
-  const removeUser = (email) => {
-    const nextUsers = users.filter((user) => user.email !== email);
-    updateStoredUsers(nextUsers);
-    if (selectedUser?.email === email) {
+  const removeUser = async (uid) => {
+    await deleteDoc(doc(db, 'users', uid));
+    if (selectedUser?.uid === uid) {
       setSelectedUser(null);
     }
   };
@@ -293,19 +301,19 @@ const AdminView = ({ zones, setCurrentPage, currentUser }) => {
                         {filteredUsers.length === 0 ? (
                           <div className="px-4 py-6 text-center text-sm text-slate-500">Aucun utilisateur trouvé.</div>
                         ) : filteredUsers.map((user) => (
-                          <div key={user.email} className="grid items-center gap-2 px-4 py-4 text-sm text-slate-700 grid-cols-[1.5fr_1fr_1fr_120px_120px]">
+                          <div key={user.uid} className="grid items-center gap-2 px-4 py-4 text-sm text-slate-700 grid-cols-[1.5fr_1fr_1fr_120px_120px]">
                             <div>
                               <p className="font-semibold text-slate-900">{user.firstName} {user.lastName}</p>
                               <p className="text-xs text-slate-500">{user.email}</p>
                             </div>
-                            <select value={user.role} onChange={(e) => changeRole(user.email, e.target.value)} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
+                            <select value={user.role} onChange={(e) => changeRole(user.uid, e.target.value)} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
                               <option value="user">Utilisateur</option>
                               <option value="admin">Administrateur</option>
                             </select>
-                            <button onClick={() => toggleUserActive(user.email)} className={`w-full rounded-2xl px-3 py-2 text-sm font-semibold ${user.active ? 'bg-emerald-600 text-white' : 'bg-red-100 text-red-700'}`}>
+                            <button onClick={() => toggleUserActive(user.uid)} className={`w-full rounded-2xl px-3 py-2 text-sm font-semibold ${user.active ? 'bg-emerald-600 text-white' : 'bg-red-100 text-red-700'}`}>
                               {user.active ? 'Actif' : 'Désactivé'}
                             </button>
-                            <button onClick={() => removeUser(user.email)} className="rounded-3xl bg-red-100 px-3 py-2 text-xs font-bold uppercase tracking-[0.15em] text-red-700 hover:bg-red-200 transition">
+                            <button onClick={() => removeUser(user.uid)} className="rounded-3xl bg-red-100 px-3 py-2 text-xs font-bold uppercase tracking-[0.15em] text-red-700 hover:bg-red-200 transition">
                               Supprimer
                             </button>
                             <button onClick={() => setSelectedUser(user)} className="rounded-3xl bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-200 transition">
@@ -333,7 +341,7 @@ const AdminView = ({ zones, setCurrentPage, currentUser }) => {
                           <p><span className="font-semibold">Activité récente :</span> {selectedUser.activity}</p>
                         </div>
                         <div className="mt-4 flex gap-3">
-                          <button onClick={() => toggleUserActive(selectedUser.email)} className="flex-1 rounded-3xl bg-emerald-600 px-4 py-3 text-white text-sm font-semibold hover:bg-emerald-700 transition">{selectedUser.active ? 'Désactiver' : 'Activer'}</button>
+                          <button onClick={() => toggleUserActive(selectedUser.uid)} className="flex-1 rounded-3xl bg-emerald-600 px-4 py-3 text-white text-sm font-semibold hover:bg-emerald-700 transition">{selectedUser.active ? 'Désactiver' : 'Activer'}</button>
                           <button onClick={() => setSelectedUser(null)} className="flex-1 rounded-3xl bg-slate-100 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-200 transition">Fermer</button>
                         </div>
                       </div>

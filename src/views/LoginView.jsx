@@ -6,12 +6,12 @@ const LoginView = ({ setCurrentPage, onLogin }) => {
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
 
-    const handleSubmit = () => {
+    const handleSubmit = async () => {
         if (!email.trim() || !password.trim()) {
             setError('Veuillez renseigner tous les champs pour vous connecter.');
             return;
         }
-        const { error: loginError } = onLogin({ email, password });
+        const { error: loginError } = await onLogin({ email, password });
         if (loginError) {
             setError(loginError);
             return;

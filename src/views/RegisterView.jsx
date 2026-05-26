@@ -9,7 +9,7 @@ const RegisterView = ({ setCurrentPage, onCreateAccount }) => {
     const [confirmPassword, setConfirmPassword] = useState('');
     const [error, setError] = useState('');
 
-    const handleSubmit = () => {
+    const handleSubmit = async () => {
         if (!firstName.trim() || !lastName.trim() || !email.trim() || !password.trim() || !confirmPassword.trim()) {
             setError('Veuillez renseigner tous les champs pour créer un compte.');
             return;
@@ -18,7 +18,7 @@ const RegisterView = ({ setCurrentPage, onCreateAccount }) => {
             setError('Les mots de passe ne correspondent pas.');
             return;
         }
-        const { error: createError } = onCreateAccount({ email, password, firstName, lastName });
+        const { error: createError } = await onCreateAccount({ email, password, firstName, lastName });
         if (createError) {
             setError(createError);
             return;

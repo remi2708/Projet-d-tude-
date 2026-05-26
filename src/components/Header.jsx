@@ -59,7 +59,7 @@ const Header = ({ isAuthenticated, setCurrentPage, setAuthenticated, setCurrentU
               <User size={16} className="text-emerald-600" />
               Mon compte
             </button>
-            {(currentUser?.role === 'admin' || currentUser?.email === 'root@gmail.com') && (
+            {currentUser?.role === 'admin' && (
               <button
                 onClick={() => handleMenuClick('admin')}
                 className="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-gray-100 transition"
