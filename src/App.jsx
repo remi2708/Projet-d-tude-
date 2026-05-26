@@ -16,6 +16,7 @@ import MapView from './views/MapView';
 import ScanIAView from './views/ScanIAView';
 import CommunityView from './views/CommunityView';
 import AdminView from './views/AdminView';
+import AccountView from './views/AccountView';
 import LoginView from './views/LoginView';
 import RegisterView from './views/RegisterView';
 
@@ -30,6 +31,8 @@ export default function App() {
   const [showConfirmationModal, setShowConfirmationModal] = useState(false);
 
   const USERS_STORAGE_KEY = 'vitinova_users';
+  const ADMIN_EMAIL = 'root@gmail.com';
+  const DEFAULT_ADMIN_PASSWORD = 'admin123';
 
   const getStoredUsers = () => {
     try {
@@ -43,6 +46,31 @@ export default function App() {
     localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(accounts));
   };
 
+  const ensureAdminAccount = () => {
+    const accounts = getStoredUsers();
+    if (!accounts[ADMIN_EMAIL]) {
+      accounts[ADMIN_EMAIL] = {
+        email: ADMIN_EMAIL,
+        password: DEFAULT_ADMIN_PASSWORD,
+        firstName: 'Super',
+        lastName: 'Admin',
+        role: 'admin',
+        active: true,
+      };
+      setStoredUsers(accounts);
+      return;
+    }
+
+    if (accounts[ADMIN_EMAIL].role !== 'admin') {
+      accounts[ADMIN_EMAIL].role = 'admin';
+      setStoredUsers(accounts);
+    }
+  };
+
+  useEffect(() => {
+    ensureAdminAccount();
+  }, []);
+
   const handleCreateAccount = ({ email, password, firstName, lastName }) => {
     const normalizedEmail = email.trim().toLowerCase();
     const accounts = getStoredUsers();
@@ -50,17 +78,51 @@ export default function App() {
       return { error: 'Un compte existe déjà avec cette adresse e-mail.' };
     }
 
+    const isAdmin = normalizedEmail === ADMIN_EMAIL;
     const newUser = {
       email: normalizedEmail,
       password,
       firstName: firstName.trim(),
-      lastName: lastName.trim()
+      lastName: lastName.trim(),
+      role: isAdmin ? 'admin' : 'user',
+      active: true
     };
 
     accounts[normalizedEmail] = newUser;
     setStoredUsers(accounts);
     setCurrentUser(newUser);
     setShowConfirmationModal(true);
+    return { error: '' };
+  };
+
+  const handleUpdateAccount = ({ firstName, lastName, password, confirmPassword }) => {
+    const normalizedEmail = currentUser?.email;
+    if (!normalizedEmail) {
+      return { error: 'Impossible de mettre à jour le compte.' };
+    }
+
+    const accounts = getStoredUsers();
+    const storedAccount = accounts[normalizedEmail];
+    if (!storedAccount) {
+      return { error: 'Compte introuvable.' };
+    }
+
+    if (!firstName.trim() || !lastName.trim()) {
+      return { error: 'Veuillez renseigner le prénom et le nom.' };
+    }
+
+    if (password || confirmPassword) {
+      if (password !== confirmPassword) {
+        return { error: 'Les mots de passe ne correspondent pas.' };
+      }
+      storedAccount.password = password;
+    }
+
+    storedAccount.firstName = firstName.trim();
+    storedAccount.lastName = lastName.trim();
+    accounts[normalizedEmail] = storedAccount;
+    setStoredUsers(accounts);
+    setCurrentUser(storedAccount);
     return { error: '' };
   };
 
@@ -73,6 +135,15 @@ export default function App() {
     }
     if (account.password !== password) {
       return { error: 'Mot de passe incorrect.' };
+    }
+    if (account.active === false) {
+      return { error: 'Ce compte est désactivé. Contactez un administrateur.' };
+    }
+
+    if (account.email === ADMIN_EMAIL && account.role !== 'admin') {
+      account.role = 'admin';
+      accounts[ADMIN_EMAIL] = account;
+      setStoredUsers(accounts);
     }
 
     setCurrentUser(account);
@@ -145,6 +216,12 @@ export default function App() {
     }
   }, [authenticated, currentPage]);
 
+  useEffect(() => {
+    if (currentPage === 'admin' && currentUser?.role !== 'admin') {
+      setCurrentPage('accueil');
+    }
+  }, [currentPage, currentUser]);
+
   // Système de routage des écrans
   const renderContent = () => {
     switch (currentPage) {
@@ -155,10 +232,16 @@ export default function App() {
       case 'scan': return <ScanIAView />;
       case 'carte': return <MapView sensorData={sensorData} zones={zones} setZones={setZones} />;
       case 'communaute': return <CommunityView user={user} />;
-      case 'admin': return <AdminView zones={zones} setCurrentPage={setCurrentPage} />;
+      case 'compte': return <AccountView currentUser={currentUser} onUpdateAccount={handleUpdateAccount} />;
+      case 'admin':
+        return currentUser?.role === 'admin'
+          ? <AdminView zones={zones} setCurrentPage={setCurrentPage} currentUser={currentUser} />
+          : <HomeView setCurrentPage={setCurrentPage} />;
       default: return <LoginView setCurrentPage={setCurrentPage} setAuthenticated={setAuthenticated} />;
     }
   };
+
+  const isAdminPage = currentPage === 'admin';
 
   return (
     <div className="min-h-screen bg-slate-900 font-sans flex items-center justify-center sm:p-8">
@@ -168,11 +251,11 @@ export default function App() {
 
         {authenticated ? (
           <>
-            <Header isConnected={isConnected} setCurrentPage={setCurrentPage} setAuthenticated={setAuthenticated} setCurrentUser={setCurrentUser} currentUser={currentUser} />
+            <Header isAuthenticated={authenticated} setCurrentPage={setCurrentPage} setAuthenticated={setAuthenticated} setCurrentUser={setCurrentUser} currentUser={currentUser} />
             <main className="flex-1 overflow-y-auto bg-slate-50 relative z-0">
               {renderContent()}
             </main>
-            <Navigation currentPage={currentPage} setCurrentPage={setCurrentPage} />
+            {!isAdminPage && <Navigation currentPage={currentPage} setCurrentPage={setCurrentPage} />}
           </>
         ) : (
           <main className="flex-1 overflow-y-auto bg-slate-50 relative z-0">

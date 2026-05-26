@@ -20,7 +20,7 @@ if (hasFirebase) {
   auth = getAuth(app);
   db = getFirestore(app);
 } else {
-  console.warn('[Firebase] Configuration manquante. Le mode hors ligne est activé.');
+  console.warn('[Firebase] Configuration manquante. Le mode hors ligne est activï¿½.');
 }
 
 const appId = import.meta.env.VITE_FIREBASE_APP_ID || 'demo';

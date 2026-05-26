@@ -1,7 +1,7 @@
 ﻿import React, { useState, useEffect, useRef } from 'react';
 import { Leaf, User, Settings, LogOut } from 'lucide-react';
 
-const Header = ({ isConnected, setCurrentPage, setAuthenticated, setCurrentUser, currentUser }) => {
+const Header = ({ isAuthenticated, setCurrentPage, setAuthenticated, setCurrentUser, currentUser }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
 
@@ -38,9 +38,9 @@ const Header = ({ isConnected, setCurrentPage, setAuthenticated, setCurrentUser,
         <h1 className="text-xl font-bold tracking-tight">Vitinova</h1>
       </div>
       <div className="flex items-center gap-3 relative" ref={menuRef}>
-        <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase ${isConnected ? 'bg-emerald-700/50 text-emerald-300' : 'bg-red-900/50 text-red-300'}`}>
-          <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-400 animate-pulse' : 'bg-red-400'}`} />
-          {isConnected ? 'Serveurs OK' : 'Déconnecté'}
+        <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase ${isAuthenticated ? 'bg-emerald-700/50 text-emerald-300' : 'bg-red-900/50 text-red-300'}`}>
+          <div className={`w-2 h-2 rounded-full ${isAuthenticated ? 'bg-emerald-400 animate-pulse' : 'bg-red-400'}`} />
+          {isAuthenticated ? 'CONNECTÉ' : 'DÉCONNECTÉ'}
         </div>
         <button onClick={() => setMenuOpen((prev) => !prev)} className="p-2 bg-emerald-700/50 rounded-full hover:bg-emerald-600 transition-colors">
           <User size={18} />
@@ -53,11 +53,27 @@ const Header = ({ isConnected, setCurrentPage, setAuthenticated, setCurrentUser,
               <p className="text-xs text-slate-500">{currentUser?.email || 'Non connecté'}</p>
             </div>
             <button
-              onClick={() => handleMenuClick('admin')}
+              onClick={() => handleMenuClick('compte')}
               className="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-gray-100 transition"
             >
-              <Settings size={16} className="text-emerald-600" />
-              Paramètres
+              <User size={16} className="text-emerald-600" />
+              Mon compte
+            </button>
+            {(currentUser?.role === 'admin' || currentUser?.email === 'root@gmail.com') && (
+              <button
+                onClick={() => handleMenuClick('admin')}
+                className="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-gray-100 transition"
+              >
+                <Settings size={16} className="text-emerald-600" />
+                Administration
+              </button>
+            )}
+            <button
+              onClick={handleLogout}
+              className="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-gray-100 transition"
+            >
+              <LogOut size={16} className="text-red-500" />
+              Déconnexion
             </button>
           </div>
         )}
